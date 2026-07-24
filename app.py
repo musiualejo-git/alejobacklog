@@ -1,5 +1,5 @@
 # ==============================================================================
-# 🎮 ALEJO'S BACKLOG MANAGER (v1.0.1 - Device-Exclusive LocalStorage Edition)
+# 🎮 ALEJO'S BACKLOG MANAGER (v1.0.2 - LocalStorage Edition)
 # Developer: Alejandro Perdomo (built with Gemini 3.6 Flash assistance)
 # Purpose: Streamlit application to manage personal game backlogs, queues,
 #          and library exports using device-isolated browser localStorage.
@@ -10,7 +10,7 @@ import pandas as pd
 import json
 import os
 import logging
-from streamlit_local_storage import LocalStorage
+from streamlit_javascript import st_javascript
 
 # ---------------- LOGGING SETUP ----------------
 LOG_FILE = "app.log"
@@ -31,9 +31,8 @@ def log_event(message, level="info"):
     elif level == "error":
         logging.error(message)
 
-# Initial launch log
 if "app_initialized" not in st.session_state:
-    log_event("Application v1.0.1 initialized successfully by Alejandro Perdomo (assisted by Gemini 3.6 Flash).")
+    log_event("Application v1.0.2 initialized successfully by Alejandro Perdomo (assisted by Gemini 3.6 Flash).")
     st.session_state.app_initialized = True
 
 st.set_page_config(
@@ -43,15 +42,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-LOCAL_STORAGE_KEY = "alejo_backlog_data_device_exclusive_v1"
-CHUNK_SIZE = 18  # Number of games to load per batch in card view
-
-# Initialize LocalStorage component
-@st.cache_resource
-def get_local_storage():
-    return LocalStorage()
-
-localStorage = get_local_storage()
+LOCAL_STORAGE_KEY = "alejo_backlog_data_device_exclusive_v2"
+CHUNK_SIZE = 18
 
 # ---------------- TOAST NOTIFICATION HELPER ----------------
 if "pending_toast" in st.session_state and st.session_state.pending_toast:
@@ -62,34 +54,32 @@ if "pending_toast" in st.session_state and st.session_state.pending_toast:
 def trigger_toast(message, icon="ℹ️"):
     st.session_state.pending_toast = (message, icon)
 
-# ---------------- LOCALSTORAGE DATA HANDLERS ----------------
+# ---------------- NATIVE JS LOCALSTORAGE HANDLERS ----------------
 def load_json_data():
-    """Loads records exclusively from the current device's browser localStorage."""
+    """Loads records directly from native browser localStorage via st_javascript."""
     default_cols = ["Nombre", "Desarrolladores", "Editores", "Instalado", "Plataformas", 
                     "Fuentes", "Played", "Completed", "In_Queue", "Currently_Playing"]
     
-    # Retrieve raw payload from browser local storage via component
-    raw_storage = localStorage.getItem(LOCAL_STORAGE_KEY)
+    js_snippet = f"window.localStorage.getItem('{LOCAL_STORAGE_KEY}');"
+    raw_storage = st_javascript(js_snippet)
     
     games_data = []
-    # If raw_storage is not None, the component has responded with stored data.
-    if raw_storage is not None:
+    if raw_storage is not None and isinstance(raw_storage, str) and raw_storage.strip() != "":
         try:
-            payload = json.loads(raw_storage) if isinstance(raw_storage, str) else raw_storage
+            payload = json.loads(raw_storage)
             if isinstance(payload, dict):
                 games_data = payload.get("games", [])
             elif isinstance(payload, list):
                 games_data = payload
-            log_event(f"Loaded device-exclusive localStorage payload containing {len(games_data)} items.")
+            log_event(f"Loaded device-exclusive native localStorage payload containing {len(games_data)} items.")
             df = pd.DataFrame(games_data)
         except Exception as e:
-            log_event(f"Error parsing device localStorage payload ({e}). Returning empty structure.", level="error")
+            log_event(f"Error parsing native localStorage payload ({e}). Returning empty structure.", level="error")
             df = pd.DataFrame(columns=default_cols)
     else:
         df = pd.DataFrame(columns=default_cols)
-        log_event("LocalStorage component returned None (initializing or empty on this device).")
+        log_event("Native localStorage returned empty or uninitialized state on this device.")
 
-    # Guarantee required schema columns
     for col in default_cols:
         if col not in df.columns:
             if col in ["Instalado", "Played", "Completed", "In_Queue", "Currently_Playing"]:
@@ -105,7 +95,7 @@ def load_json_data():
     return df
 
 def save_json_data(explicit=False):
-    """Saves DataFrame exclusively into this specific device's browser localStorage."""
+    """Saves DataFrame directly into native browser localStorage via st_javascript."""
     autosave_enabled = st.session_state.get("autosave_enabled", True)
     
     if autosave_enabled or explicit:
@@ -115,19 +105,20 @@ def save_json_data(explicit=False):
                 st.session_state.df[col] = st.session_state.df[col].fillna(False).astype(bool)
 
         games_records = st.session_state.df.to_dict(orient="records")
-        
         payload = {
             "version": "1.0.1",
             "developer": "Alejandro Perdomo",
             "games": games_records
         }
         
-        # Write strictly to the local browser instance
-        localStorage.setItem(LOCAL_STORAGE_KEY, json.dumps(payload, ensure_ascii=False))
+        json_string = json.dumps(payload, ensure_ascii=False)
+        safe_json_string = json_string.replace("\\", "\\\\").replace("'", "\\'")
+        set_js_snippet = f"window.localStorage.setItem('{LOCAL_STORAGE_KEY}', '{safe_json_string}');"
+        st_javascript(set_js_snippet)
         
         st.session_state.unsaved_changes = False
         st.session_state.original_df = st.session_state.df.copy()
-        log_event(f"Successfully saved {len(games_records)} records into this device's localStorage.")
+        log_event(f"Successfully saved {len(games_records)} records into native device localStorage.")
         
         trigger_toast("💾 Changes saved to this device's storage!", icon="💾")
 
@@ -231,7 +222,6 @@ st.sidebar.header("⚙️ View & App Settings")
 mobile_mode = st.sidebar.toggle("📱 Mobile Card Layout", value=True)
 autosave_enabled = st.sidebar.toggle("🔄 Autosave Changes", value=True, key="autosave_enabled")
 
-# --- SYSTEM & INFO PAGES IN SIDEBAR ---
 st.sidebar.markdown("---")
 st.sidebar.header("ℹ️ System & Info")
 
@@ -270,7 +260,6 @@ st.markdown("---")
 
 # ---------------- SHARED RENDERER FOR CARDS ----------------
 def render_game_cards(view_df, is_queue_context=False):
-    """Renders Detailed Expanders or Compact Grid Cards."""
     card_sub_view = st.radio(
         "Card Style", 
         options=["Detailed Expanders", "Compact Cards"], 
@@ -644,7 +633,7 @@ elif st.session_state.active_tab == "➕ Add Game":
                 trigger_toast(f"✅ Added '{name}' to your library!", icon="🎮")
                 st.rerun()
 
-# ---------------- TAB 4: DATA & BACKUPS ----------------
+# ---------------- TAB 4: DATA & BACKUPS (FIXED FOR ANDROID UPLOADS) ----------------
 elif st.session_state.active_tab == "📁 Data & Backups":
     st.subheader("📁 Data Management & Backups")
     
@@ -652,7 +641,8 @@ elif st.session_state.active_tab == "📁 Data & Backups":
     
     with col_imp:
         st.markdown("### 📥 Import Data")
-        uploaded_file = st.file_uploader("Choose JSON or CSV file", type=["json", "csv"], key="data_tab_uploader")
+        # Extended types to allow text/csv variants common on Android mobile browsers
+        uploaded_file = st.file_uploader("Choose JSON, CSV, or text backup file", type=["json", "csv", "txt"], key="data_tab_uploader")
         
         if uploaded_file is not None:
             if st.button("Process & Merge Data File", type="primary", use_container_width=True):
@@ -665,7 +655,12 @@ elif st.session_state.active_tab == "📁 Data & Backups":
                         raw_records = imported_payload.get("games", []) if isinstance(imported_payload, dict) else imported_payload
                         imported_df = pd.DataFrame(raw_records)
                     else:
-                        imported_df = pd.read_csv(uploaded_file)
+                        # Robust CSV reading that handles alternative separators or mobile encoding quirks
+                        try:
+                            imported_df = pd.read_csv(uploaded_file, encoding='utf-8')
+                        except UnicodeDecodeError:
+                            uploaded_file.seek(0)
+                            imported_df = pd.read_csv(uploaded_file, encoding='latin1')
 
                     col_aliases = {
                         "Name": "Nombre", "Installed": "Instalado", "IsInstalled": "Instalado",
@@ -772,17 +767,16 @@ elif st.session_state.active_tab == "ℹ️ About":
     st.subheader("ℹ️ About Alejo's Backlog Manager")
     
     st.markdown("""
-    ### 🎮 Version 1.0.1 (Device-Exclusive LocalStorage Edition)
+    ### 🎮 Version 1.0.1 (Local Storage Release)
     **Alejo's Backlog Manager** is a lightweight, self-contained application built specifically to track, organize, and prioritize video game backlogs and play queues.
 
     ---
 
     #### 🚀 Key Features
-    * **Device-Exclusive Local Storage:** Persistent client-side architecture ensuring data remains completely isolated per device/browser.
-    * **Play Queue & Up Next:** Prioritize titles, track what you're currently playing, and move games seamlessly between backlogs and active queues.
-    * **Mobile & Desktop Responsive:** Switch on the fly between touch-friendly card expanders and high-density data tables.
-    * **Full Undo & Data Control:** Complete historical state tracking with single-click action undo and comprehensive backup options.
-    * **Diagnostics & Event Logging:** Real-time application logging for operational visibility and maintenance.
+    * **Native JavaScript Local Storage:** Direct browser interaction bypassing iframe limitations to guarantee strict device isolation.
+    * **Mobile-Optimized File Ingestion:** Enhanced Android browser support handling flexible file formats and encoding fallbacks (`utf-8` / `latin1`).
+    * **Play Queue & Up Next:** Prioritize titles, track what you're currently playing, and move games seamlessly.
+    * **Diagnostics & Event Logging:** Real-time application logging for operational visibility.
 
     ---
 
@@ -796,15 +790,16 @@ elif st.session_state.active_tab == "ℹ️ About":
     * **[Alejo's Backlog Manager source code on Github](https://github.com/musiualejo-git/alejobacklog)** — For anyone interested to make their own or improve it.
 
     ---
+    ---
 
     #### 📌 System Details
     | Property | Detail |
     | :--- | :--- |
-    | **Application Version** | `1.0.1` (Device-Exclusive LocalStorage Release) |
+    | **Application Version** | `1.0.1` (Local Storage Release) |
     | **Developer** | Alejandro Perdomo |
     | **AI Assistance** | Gemini 3.6 Flash |
     | **Framework** | Streamlit & Python |
-    | **Storage Model** | Device-Exclusive Browser Local Storage |
+    | **Storage Model** | Native Browser `window.localStorage` |
     """)
 
 # ---------------- EXCLUSIVE PAGE: LOGS & DIAGNOSTICS ----------------
