@@ -1,8 +1,8 @@
 # ==============================================================================
-# 🎮 ALEJO'S BACKLOG MANAGER (v1.0.0)
+# 🎮 ALEJO'S BACKLOG MANAGER (v1.0.1 - LocalStorage Edition)
 # Developer: Alejandro Perdomo (built with Gemini 3.6 Flash assistance)
 # Purpose: Streamlit application to manage personal game backlogs, queues,
-#          and library exports using single JSON storage.
+#          and library exports using browser localStorage for device isolation.
 # ==============================================================================
 
 import streamlit as st
@@ -10,6 +10,7 @@ import pandas as pd
 import json
 import os
 import logging
+from streamlit_local_storage import LocalStorage
 
 # ---------------- LOGGING SETUP ----------------
 LOG_FILE = "app.log"
@@ -32,7 +33,7 @@ def log_event(message, level="info"):
 
 # Initial launch log
 if "app_initialized" not in st.session_state:
-    log_event("Application v1.0.0 initialized successfully by Alejandro Perdomo (assisted by Gemini 3.6 Flash).")
+    log_event("Application v1.0.1 initialized successfully by Alejandro Perdomo (assisted by Gemini 3.6 Flash).")
     st.session_state.app_initialized = True
 
 st.set_page_config(
@@ -42,8 +43,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-JSON_FILE = "backlog_data.json"
+LOCAL_STORAGE_KEY = "alejo_backlog_data_v1"
 CHUNK_SIZE = 18  # Number of games to load per batch in card view
+
+# Initialize LocalStorage component
+@st.cache_resource
+def get_local_storage():
+    return LocalStorage()
+
+localStorage = get_local_storage()
 
 # ---------------- TOAST NOTIFICATION HELPER ----------------
 if "pending_toast" in st.session_state and st.session_state.pending_toast:
@@ -54,25 +62,32 @@ if "pending_toast" in st.session_state and st.session_state.pending_toast:
 def trigger_toast(message, icon="ℹ️"):
     st.session_state.pending_toast = (message, icon)
 
-# ---------------- JSON DATA HANDLERS ----------------
+# ---------------- LOCALSTORAGE DATA HANDLERS ----------------
 def load_json_data():
-    """Loads full library records from single JSON file into a pandas DataFrame."""
+    """Loads full library records from browser localStorage into a pandas DataFrame."""
     default_cols = ["Nombre", "Desarrolladores", "Editores", "Instalado", "Plataformas", 
                     "Fuentes", "Played", "Completed", "In_Queue", "Currently_Playing"]
     
-    if os.path.exists(JSON_FILE):
+    # Retrieve raw payload from browser local storage via component
+    raw_storage = localStorage.getItem(LOCAL_STORAGE_KEY)
+    
+    games_data = []
+    if raw_storage:
         try:
-            with open(JSON_FILE, "r", encoding="utf-8") as f:
-                payload = json.load(f)
+            # If raw_storage is returned as a string, parse it
+            payload = json.loads(raw_storage) if isinstance(raw_storage, str) else raw_storage
+            if isinstance(payload, dict):
                 games_data = payload.get("games", [])
-                log_event(f"Loaded JSON payload containing {len(games_data)} items.")
-                df = pd.DataFrame(games_data)
+            elif isinstance(payload, list):
+                games_data = payload
+            log_event(f"Loaded localStorage payload containing {len(games_data)} items.")
+            df = pd.DataFrame(games_data)
         except Exception as e:
-            log_event(f"Error parsing JSON file ({e}). Returning empty structure.", level="error")
+            log_event(f"Error parsing localStorage payload ({e}). Returning empty structure.", level="error")
             df = pd.DataFrame(columns=default_cols)
     else:
         df = pd.DataFrame(columns=default_cols)
-        log_event("No existing JSON file found. Initialized empty library.")
+        log_event("No existing localStorage item found. Initialized empty library.")
 
     # Guarantee required schema columns
     for col in default_cols:
@@ -90,11 +105,11 @@ def load_json_data():
     return df
 
 def save_json_data(explicit=False):
-    """Saves DataFrame as clean structured records into single JSON file."""
+    """Saves DataFrame as clean structured records into browser localStorage."""
     autosave_enabled = st.session_state.get("autosave_enabled", True)
     
     if autosave_enabled or explicit:
-        with st.spinner("💾 Saving changes to JSON..."):
+        with st.spinner("💾 Saving changes to browser storage..."):
             status_cols = ["Instalado", "Played", "Completed", "In_Queue", "Currently_Playing"]
             for col in status_cols:
                 if col in st.session_state.df.columns:
@@ -103,19 +118,19 @@ def save_json_data(explicit=False):
             games_records = st.session_state.df.to_dict(orient="records")
             
             payload = {
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "developer": "Alejandro Perdomo",
                 "games": games_records
             }
             
-            with open(JSON_FILE, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2, ensure_ascii=False)
+            # Serialize and store into browser local storage
+            localStorage.setItem(LOCAL_STORAGE_KEY, json.dumps(payload, ensure_ascii=False))
             
             st.session_state.unsaved_changes = False
             st.session_state.original_df = st.session_state.df.copy()
-            log_event(f"Successfully saved {len(games_records)} records into {JSON_FILE}.")
+            log_event(f"Successfully saved {len(games_records)} records into browser localStorage.")
         
-        trigger_toast("✅ Changes saved to JSON!", icon="💾")
+        trigger_toast("💾 Changes saved to browser storage!", icon="💾")
 
 # ---------------- STATE INITIALIZATION ----------------
 if "df" not in st.session_state:
@@ -157,7 +172,7 @@ def revert_all_changes():
     st.session_state.df = st.session_state.original_df.copy()
     st.session_state.history.clear()
     st.session_state.unsaved_changes = False
-    log_event("User reverted all unsaved changes to original JSON state.")
+    log_event("User reverted all unsaved changes to original storage state.")
     trigger_toast("↩️ Restored to original state!", icon="↩️")
     st.rerun()
 
@@ -170,7 +185,7 @@ def delete_grouped_game(game_name):
     mark_changed()
     save_json_data()
     log_event(f"Deleted all instances of game: '{game_name}'")
-    trigger_toast(f"🗑️ Deleted '{game_name}' from JSON storage!", icon="🗑️")
+    trigger_toast(f"🗑️ Deleted '{game_name}' from storage!", icon="🗑️")
     st.rerun()
 
 def sync_main_tab():
@@ -571,12 +586,26 @@ elif st.session_state.active_tab == "➕ Add Game":
         
         col_src, col_plat = st.columns(2)
         with col_src:
-            source_choice = st.selectbox("Source / Store", options=existing_sources + ["+ Add Custom Source..."])
-            source = st.text_input("Custom Source Name", value="Steam") if source_choice == "+ Add Custom Source..." else source_choice
+            source_choice = st.selectbox("Source / Store", options=existing_sources + ["+ Add Custom Source..."], key="add_source_choice")
+            is_custom_source = (source_choice == "+ Add Custom Source...")
+            source_input = st.text_input(
+                "Custom Source Name", 
+                value="Steam" if is_custom_source else "", 
+                disabled=not is_custom_source,
+                key="add_custom_source_input"
+            )
+            source = source_input if is_custom_source else source_choice
 
         with col_plat:
-            platform_choice = st.selectbox("Platform", options=existing_platforms + ["+ Add Custom Platform..."])
-            platform = st.text_input("Custom Platform Name", value="PC (Windows)") if platform_choice == "+ Add Custom Platform..." else platform_choice
+            platform_choice = st.selectbox("Platform", options=existing_platforms + ["+ Add Custom Platform..."], key="add_platform_choice")
+            is_custom_platform = (platform_choice == "+ Add Custom Platform...")
+            platform_input = st.text_input(
+                "Custom Platform Name", 
+                value="PC (Windows)" if is_custom_platform else "", 
+                disabled=not is_custom_platform,
+                key="add_custom_platform_input"
+            )
+            platform = platform_input if is_custom_platform else platform_choice
 
         st.markdown("##### Options & Initial Status")
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -689,7 +718,7 @@ elif st.session_state.active_tab == "📁 Data & Backups":
         try:
             full_records = st.session_state.df.to_dict(orient="records")
             full_export_payload = {
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "developer": "Alejandro Perdomo",
                 "games": full_records
             }
@@ -723,7 +752,7 @@ elif st.session_state.active_tab == "📁 Data & Backups":
 
     st.markdown("---")
     st.markdown("### 🚨 Danger Zone")
-    confirm_clear = st.checkbox("I understand this will permanently erase my backlog and queue", key="confirm_wipe_checkbox")
+    confirm_clear = st.checkbox("I understand this will permanently erase my backlog and queue from browser storage", key="confirm_wipe_checkbox")
     
     if st.button("🔥 Clear All Data", type="primary", disabled=not confirm_clear, use_container_width=True):
         try:
@@ -732,7 +761,7 @@ elif st.session_state.active_tab == "📁 Data & Backups":
                             "Fuentes", "Played", "Completed", "In_Queue", "Currently_Playing"]
             st.session_state.df = pd.DataFrame(columns=default_cols)
             save_json_data(explicit=True)
-            log_event("User cleared all JSON library data.", level="warning")
+            log_event("User cleared all browser storage library data.", level="warning")
             trigger_toast("🔥 All data erased!", icon="🗑️")
             st.rerun()
         except Exception as e:
@@ -744,13 +773,13 @@ elif st.session_state.active_tab == "ℹ️ About":
     st.subheader("ℹ️ About Alejo's Backlog Manager")
     
     st.markdown("""
-    ### 🎮 Welcome to Version 1.0.0
+    ### 🎮 Welcome to Version 1.0.1 (LocalStorage Edition)
     **Alejo's Backlog Manager** is a lightweight, self-contained application built specifically to track, organize, and prioritize video game backlogs and play queues.
 
     ---
 
     #### 🚀 Key Features
-    * **Unified JSON Storage:** Single-file persistent architecture (`backlog_data.json`) ensuring fast reads, atomic updates, and seamless backups.
+    * **Browser Local Storage:** Persistent client-side architecture ensuring data is completely exclusive and isolated per browser/device.
     * **Play Queue & Up Next:** Prioritize titles, track what you're currently playing, and move games seamlessly between backlogs and active queues.
     * **Mobile & Desktop Responsive:** Switch on the fly between touch-friendly card expanders and high-density data tables.
     * **Full Undo & Data Control:** Complete historical state tracking with single-click action undo and comprehensive backup options.
@@ -764,14 +793,19 @@ elif st.session_state.active_tab == "ℹ️ About":
 
     ---
 
+    **🐙 Github repository:**
+    * **[Alejo's Backlog Manager source code on Github](https://github.com/musiualejo-git/alejobacklog)** — For anyone interested to make their own or improve it.
+
+    ---
+
     #### 📌 System Details
     | Property | Detail |
     | :--- | :--- |
-    | **Application Version** | `1.0.0` (Production Release) |
+    | **Application Version** | `1.0.1` (LocalStorage Release) |
     | **Developer** | Alejandro Perdomo |
     | **AI Assistance** | Gemini 3.6 Flash |
     | **Framework** | Streamlit & Python |
-    | **Storage Model** | Local JSON Document Store |
+    | **Storage Model** | Browser Local Storage |
     """)
 
 # ---------------- EXCLUSIVE PAGE: LOGS & DIAGNOSTICS ----------------
