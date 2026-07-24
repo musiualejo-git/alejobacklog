@@ -1,4 +1,4 @@
-# 🎮 Alejo's Backlog Manager `v1.0.0`
+# 🎮 Alejo's Backlog Manager `v1.0.1 (LocalStorage Edition)`
 
 **Alejo's Backlog Manager** is a lightweight, self-contained application built specifically to track, organize, and prioritize video game backlogs and play queues.
 
@@ -6,7 +6,7 @@
 
 ## 🚀 Key Features
 
-* **Unified JSON Storage:** Single-file persistent architecture (`backlog_data.json`) ensuring fast reads, atomic updates, and seamless backups.
+* **Browser Local Storage:** Persistent client-side architecture ensuring data is completely exclusive and isolated per browser/device.
 * **Play Queue & Up Next:** Prioritize titles, track what you're currently playing, and move games seamlessly between backlogs and active queues.
 * **Mobile & Desktop Responsive:** Switch on the fly between touch-friendly card expanders and high-density data tables.
 * **Full Undo & Data Control:** Complete historical state tracking with single-click action undo and comprehensive backup options.
@@ -18,11 +18,16 @@
 
 | Property | Detail |
 | :--- | :--- |
-| **Application Version** | `1.0.0` (Production Release) |
+| **Application Version** | `1.0.1` (LocalStorage Edition) |
 | **Developer** | Alejandro Perdomo |
-| **AI Assistance** | Gemini |
+| **AI Assistance** | Gemini 3.6 Flash |
 | **Framework** | Streamlit & Python |
 | **Storage Model** | Local JSON Document Store |
+
+---
+
+**## 🐙 Github repository:**
+* **[Alejo's Backlog Manager source code on Github](https://github.com/musiualejo-git/alejobacklog)** — For anyone interested to make their own or improve it.
 
 ---
 
