@@ -1,8 +1,8 @@
 # ==============================================================================
-# 🎮 ALEJO'S BACKLOG MANAGER (v1.0.1 - LocalStorage Edition)
+# 🎮 ALEJO'S BACKLOG MANAGER (v1.0.1 - Device-Exclusive LocalStorage Edition)
 # Developer: Alejandro Perdomo (built with Gemini 3.6 Flash assistance)
 # Purpose: Streamlit application to manage personal game backlogs, queues,
-#          and library exports using browser localStorage for device isolation.
+#          and library exports using device-isolated browser localStorage.
 # ==============================================================================
 
 import streamlit as st
@@ -43,7 +43,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-LOCAL_STORAGE_KEY = "alejo_backlog_data_v1"
+LOCAL_STORAGE_KEY = "alejo_backlog_data_device_exclusive_v1"
 CHUNK_SIZE = 18  # Number of games to load per batch in card view
 
 # Initialize LocalStorage component
@@ -64,7 +64,7 @@ def trigger_toast(message, icon="ℹ️"):
 
 # ---------------- LOCALSTORAGE DATA HANDLERS ----------------
 def load_json_data():
-    """Loads full library records from browser localStorage into a pandas DataFrame."""
+    """Loads records exclusively from the current device's browser localStorage."""
     default_cols = ["Nombre", "Desarrolladores", "Editores", "Instalado", "Plataformas", 
                     "Fuentes", "Played", "Completed", "In_Queue", "Currently_Playing"]
     
@@ -72,22 +72,22 @@ def load_json_data():
     raw_storage = localStorage.getItem(LOCAL_STORAGE_KEY)
     
     games_data = []
-    if raw_storage:
+    # If raw_storage is not None, the component has responded with stored data.
+    if raw_storage is not None:
         try:
-            # If raw_storage is returned as a string, parse it
             payload = json.loads(raw_storage) if isinstance(raw_storage, str) else raw_storage
             if isinstance(payload, dict):
                 games_data = payload.get("games", [])
             elif isinstance(payload, list):
                 games_data = payload
-            log_event(f"Loaded localStorage payload containing {len(games_data)} items.")
+            log_event(f"Loaded device-exclusive localStorage payload containing {len(games_data)} items.")
             df = pd.DataFrame(games_data)
         except Exception as e:
-            log_event(f"Error parsing localStorage payload ({e}). Returning empty structure.", level="error")
+            log_event(f"Error parsing device localStorage payload ({e}). Returning empty structure.", level="error")
             df = pd.DataFrame(columns=default_cols)
     else:
         df = pd.DataFrame(columns=default_cols)
-        log_event("No existing localStorage item found. Initialized empty library.")
+        log_event("LocalStorage component returned None (initializing or empty on this device).")
 
     # Guarantee required schema columns
     for col in default_cols:
@@ -105,32 +105,31 @@ def load_json_data():
     return df
 
 def save_json_data(explicit=False):
-    """Saves DataFrame as clean structured records into browser localStorage."""
+    """Saves DataFrame exclusively into this specific device's browser localStorage."""
     autosave_enabled = st.session_state.get("autosave_enabled", True)
     
     if autosave_enabled or explicit:
-        with st.spinner("💾 Saving changes to browser storage..."):
-            status_cols = ["Instalado", "Played", "Completed", "In_Queue", "Currently_Playing"]
-            for col in status_cols:
-                if col in st.session_state.df.columns:
-                    st.session_state.df[col] = st.session_state.df[col].fillna(False).astype(bool)
+        status_cols = ["Instalado", "Played", "Completed", "In_Queue", "Currently_Playing"]
+        for col in status_cols:
+            if col in st.session_state.df.columns:
+                st.session_state.df[col] = st.session_state.df[col].fillna(False).astype(bool)
 
-            games_records = st.session_state.df.to_dict(orient="records")
-            
-            payload = {
-                "version": "1.0.1",
-                "developer": "Alejandro Perdomo",
-                "games": games_records
-            }
-            
-            # Serialize and store into browser local storage
-            localStorage.setItem(LOCAL_STORAGE_KEY, json.dumps(payload, ensure_ascii=False))
-            
-            st.session_state.unsaved_changes = False
-            st.session_state.original_df = st.session_state.df.copy()
-            log_event(f"Successfully saved {len(games_records)} records into browser localStorage.")
+        games_records = st.session_state.df.to_dict(orient="records")
         
-        trigger_toast("💾 Changes saved to browser storage!", icon="💾")
+        payload = {
+            "version": "1.0.1",
+            "developer": "Alejandro Perdomo",
+            "games": games_records
+        }
+        
+        # Write strictly to the local browser instance
+        localStorage.setItem(LOCAL_STORAGE_KEY, json.dumps(payload, ensure_ascii=False))
+        
+        st.session_state.unsaved_changes = False
+        st.session_state.original_df = st.session_state.df.copy()
+        log_event(f"Successfully saved {len(games_records)} records into this device's localStorage.")
+        
+        trigger_toast("💾 Changes saved to this device's storage!", icon="💾")
 
 # ---------------- STATE INITIALIZATION ----------------
 if "df" not in st.session_state:
@@ -773,13 +772,13 @@ elif st.session_state.active_tab == "ℹ️ About":
     st.subheader("ℹ️ About Alejo's Backlog Manager")
     
     st.markdown("""
-    ### 🎮 Welcome to Version 1.0.1 (LocalStorage Edition)
+    ### 🎮 Version 1.0.1 (Device-Exclusive LocalStorage Edition)
     **Alejo's Backlog Manager** is a lightweight, self-contained application built specifically to track, organize, and prioritize video game backlogs and play queues.
 
     ---
 
     #### 🚀 Key Features
-    * **Browser Local Storage:** Persistent client-side architecture ensuring data is completely exclusive and isolated per browser/device.
+    * **Device-Exclusive Local Storage:** Persistent client-side architecture ensuring data remains completely isolated per device/browser.
     * **Play Queue & Up Next:** Prioritize titles, track what you're currently playing, and move games seamlessly between backlogs and active queues.
     * **Mobile & Desktop Responsive:** Switch on the fly between touch-friendly card expanders and high-density data tables.
     * **Full Undo & Data Control:** Complete historical state tracking with single-click action undo and comprehensive backup options.
@@ -801,11 +800,11 @@ elif st.session_state.active_tab == "ℹ️ About":
     #### 📌 System Details
     | Property | Detail |
     | :--- | :--- |
-    | **Application Version** | `1.0.1` (LocalStorage Release) |
+    | **Application Version** | `1.0.1` (Device-Exclusive LocalStorage Release) |
     | **Developer** | Alejandro Perdomo |
     | **AI Assistance** | Gemini 3.6 Flash |
     | **Framework** | Streamlit & Python |
-    | **Storage Model** | Browser Local Storage |
+    | **Storage Model** | Device-Exclusive Browser Local Storage |
     """)
 
 # ---------------- EXCLUSIVE PAGE: LOGS & DIAGNOSTICS ----------------
